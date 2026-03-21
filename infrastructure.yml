@@ -1,0 +1,142 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Complete CI/CD Pipeline and S3 Bucket deployment'
+
+Parameters:
+  GitHubRepo:
+    Type: String
+    Default: 'your-repo-name'
+  GitHubBranch:
+    Type: String
+    Default: 'main'
+  GitHubOwner:
+    Type: String
+    Default: 'your-github-username'
+
+Resources:
+  # S3 Bucket to be deployed
+  MyS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'my-app-bucket-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # Pipeline artifacts bucket
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'pipeline-artifacts-${AWS::AccountId}'
+
+  # CodeBuild IAM Role
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/PowerUserAccess'
+        - 'arn:aws:iam::aws:policy/IAMFullAccess'
+
+  # CodePipeline IAM Role
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AWSCodePipelineFullAccess'
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:*'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'codebuild:*'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'codestar-connections:UseConnection'
+                Resource: '*'
+
+  # CodeBuild Project
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: S3BucketDeployment
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:5.0
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: buildspec.yml
+
+  # CodePipeline
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: S3BucketPipeline
+      RoleArn: !GetAtt CodePipelineRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: SourceAction
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: '1'
+              Configuration:
+                ConnectionArn: !Sub 'arn:aws:codestar-connections:${AWS::Region}:${AWS::AccountId}:connection/YOUR-CONNECTION-ID'
+                FullRepositoryId: !Sub '${GitHubOwner}/${GitHubRepo}'
+                BranchName: !Ref GitHubBranch
+              OutputArtifacts:
+                - Name: SourceOutput
+        - Name: Deploy
+          Actions:
+            - Name: DeployAction
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Ref CodeBuildProject
+              InputArtifacts:
+                - Name: SourceOutput
+
+Outputs:
+  PipelineName:
+    Value: !Ref Pipeline
+  BucketName:
+    Description: 'S3 Bucket Name'
+    Value: !Ref MyS3Bucket
+  BucketArn:
+    Description: 'S3 Bucket ARN'
+    Value: !GetAtt MyS3Bucket.Arn

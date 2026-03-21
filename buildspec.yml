@@ -1,0 +1,42 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.9
+    commands:
+      - chmod +x format_terraform_plan.py
+  pre_build:
+    commands:
+      - echo "Running Terraform plan..."
+      - terraform init
+      - terraform plan -out=tfplan -no-color | tee plan_output.txt
+      - echo ""
+      - echo "=========================================="
+      - echo "📋 TERRAFORM PLAN - HUMAN READABLE FORMAT"
+      - echo "=========================================="
+      - python3 format_terraform_plan.py plan_output.txt | tee formatted_plan.txt
+      - echo ""
+      - echo "=========================================="
+      - echo "✅ Plan review complete. Proceeding to apply..."
+      - echo "=========================================="
+  build:
+    commands:
+      - echo ""
+      - echo "=========================================="
+      - echo "🚀 APPLYING TERRAFORM CHANGES"
+      - echo "=========================================="
+      - echo ""
+      - echo "📋 Reminder - Changes being applied:"
+      - python3 format_terraform_plan.py plan_output.txt
+      - echo ""
+      - echo "⏳ Executing terraform apply..."
+      - terraform apply -auto-approve tfplan -no-color | tee apply_output.txt
+      - echo ""
+      - echo "=========================================="
+      - echo "✅ DEPLOYMENT COMPLETE!"
+      - echo "=========================================="
+
+artifacts:
+  files:
+    - '**/*'
