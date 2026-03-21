@@ -6,8 +6,8 @@ phases:
       python: 3.9
     commands:
       - echo "Installing Terraform..."
-      - wget -q https://releases.hashicorp.com/terraform/1.5.7/terraform_1.5.7_linux_amd64.zip
-      - unzip -q terraform_1.5.7_linux_amd64.zip
+      - wget -q https://releases.hashicorp.com/terraform/1.14.7/terraform_1.14.7_linux_amd64.zip
+      - unzip -q terraform_1.14.7_linux_amd64.zip
       - mv terraform /usr/local/bin/
       - terraform --version
       - chmod +x format_terraform_plan.py
