@@ -41,6 +41,23 @@ phases:
       - echo "=========================================="
       - echo "✅ DEPLOYMENT COMPLETE!"
       - echo "=========================================="
+  post_build:
+    commands:
+      - echo "Detecting source branch..."
+      - |
+        # Detect the branch name
+        if [ -n "$BRANCH_NAME" ]; then
+          SOURCE_BRANCH="$BRANCH_NAME"
+        else
+          SOURCE_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+        fi
+        echo "Detected branch: $SOURCE_BRANCH"
+        
+        # Export branch to a file for Lambda to consume
+        echo "{\"source_branch\": \"$SOURCE_BRANCH\"}" > branch_info.json
+        cat branch_info.json
 artifacts:
   files:
     - '**/*'
+    - branch_info.json
+  name: BuildArtifact

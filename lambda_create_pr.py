@@ -5,6 +5,8 @@ import os
 
 http = urllib3.PoolManager()
 ssm = boto3.client('ssm')
+s3 = boto3.client('s3')
+codepipeline = boto3.client('codepipeline')
 
 def lambda_handler(event, context):
     """
@@ -17,47 +19,56 @@ def lambda_handler(event, context):
     github_repo = os.environ.get('GITHUB_REPO', 'codepipeline')
     target_branch = 'main'  # Always merge to main
     
-    # Try to get source branch from multiple sources
+    # Get source branch from CodePipeline artifact
     source_branch = None
     
-    # 1. Try from CodePipeline user parameters (if passed)
-    user_params = event.get('CodePipeline.job', {}).get('data', {}).get('actionConfiguration', {}).get('configuration', {}).get('UserParameters')
-    if user_params:
-        try:
-            params = json.loads(user_params)
-            source_branch = params.get('source_branch')
-        except:
-            pass
+    try:
+        # Get job details from CodePipeline
+        job_id = event['CodePipeline.job']['id']
+        job_data = event['CodePipeline.job']['data']
+        
+        # Get input artifacts
+        input_artifacts = job_data.get('inputArtifacts', [])
+        
+        if input_artifacts:
+            # Get the first artifact (BuildArtifact)
+            artifact = input_artifacts[0]
+            artifact_location = artifact['location']['s3Location']
+            bucket = artifact_location['bucketName']
+            key = artifact_location['objectKey']
+            
+            print(f"Reading artifact from s3://{bucket}/{key}")
+            
+            # Download and extract branch_info.json from artifact
+            # Note: Artifacts are ZIP files, we need to extract
+            import zipfile
+            import io
+            
+            # Download the artifact ZIP
+            response = s3.get_object(Bucket=bucket, Key=key)
+            zip_content = response['Body'].read()
+            
+            # Extract branch_info.json
+            with zipfile.ZipFile(io.BytesIO(zip_content)) as zip_file:
+                if 'branch_info.json' in zip_file.namelist():
+                    branch_data = json.loads(zip_file.read('branch_info.json'))
+                    source_branch = branch_data.get('source_branch')
+                    print(f"Branch from artifact: {source_branch}")
+        
+    except Exception as e:
+        print(f"Could not read branch from artifact: {str(e)}")
     
-    # 2. Try from environment variable (set in Lambda config)
-    if not source_branch:
-        source_branch = os.environ.get('SOURCE_BRANCH')
-    
-    # 3. Try from event detail (if triggered by EventBridge)
-    if not source_branch:
-        source_branch = event.get('detail', {}).get('source-branch')
-    
-    # 4. Fallback - check if we can extract from pipeline execution
-    if not source_branch:
-        # Try to get from CodePipeline execution variables
-        execution_vars = event.get('CodePipeline.job', {}).get('data', {}).get('inputArtifacts', [])
-        for artifact in execution_vars:
-            revision = artifact.get('revision', {})
-            if 'revisionId' in revision:
-                # This might contain branch info
-                source_branch = revision.get('revisionSummary', 'unknown-branch')
-                break
-    
-    # If still no branch found, use environment variable or default
+    # Fallback to environment variable if artifact reading failed
     if not source_branch:
         source_branch = os.environ.get('SOURCE_BRANCH', 'dev')
-        print(f"Warning: Could not detect source branch, using: {source_branch}")
+        print(f"Using fallback branch: {source_branch}")
     
     print(f"Source branch: {source_branch}, Target branch: {target_branch}")
     
     # Skip if already on main branch
     if source_branch == target_branch:
         print(f"Already on {target_branch} branch, skipping PR creation")
+        codepipeline.put_job_success_result(jobId=job_id)
         return {
             'statusCode': 200,
             'body': json.dumps('Skipped - already on main branch')
@@ -72,11 +83,15 @@ def lambda_handler(event, context):
         github_token = response['Parameter']['Value']
     except Exception as e:
         print(f"Error getting GitHub token: {str(e)}")
+        codepipeline.put_job_failure_result(
+            jobId=job_id,
+            failureDetails={'message': f'Failed to get GitHub token: {str(e)}', 'type': 'JobFailed'}
+        )
         raise
     
     # Get pipeline execution details from event
-    pipeline_name = event.get('detail', {}).get('pipeline', 'Unknown')
-    execution_id = event.get('detail', {}).get('execution-id', 'Unknown')
+    pipeline_name = job_data.get('pipelineContext', {}).get('pipelineName', 'Unknown')
+    execution_id = job_data.get('pipelineContext', {}).get('pipelineExecutionId', 'Unknown')
     
     # Create PR body
     pr_body = f"""## Terraform Deployment Successful ✅
@@ -120,6 +135,7 @@ All stages (Build → Approval → Deploy) completed successfully.
         if response.status == 201:
             pr_url = response_data.get('html_url')
             print(f"✅ Pull Request created: {pr_url}")
+            codepipeline.put_job_success_result(jobId=job_id)
             return {
                 'statusCode': 200,
                 'body': json.dumps({
@@ -129,6 +145,7 @@ All stages (Build → Approval → Deploy) completed successfully.
             }
         else:
             print(f"⚠️ PR creation failed or already exists: {response_data}")
+            codepipeline.put_job_success_result(jobId=job_id)
             return {
                 'statusCode': response.status,
                 'body': json.dumps(response_data)
@@ -136,5 +153,9 @@ All stages (Build → Approval → Deploy) completed successfully.
             
     except Exception as e:
         print(f"Error creating PR: {str(e)}")
+        codepipeline.put_job_failure_result(
+            jobId=job_id,
+            failureDetails={'message': f'Failed to create PR: {str(e)}', 'type': 'JobFailed'}
+        )
         raise
 
