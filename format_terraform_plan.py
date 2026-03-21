@@ -58,13 +58,13 @@ def parse_terraform_plan(plan_text: str) -> Dict[str, List[Dict]]:
     return changes
 
 def format_table(changes: Dict) -> str:
-    """Format changes into a readable table."""
+    """Format changes into a readable table with all resources and their actions."""
     output = []
     
     # Header
-    output.append("=" * 120)
-    output.append("                              TERRAFORM PLAN SUMMARY")
-    output.append("=" * 120)
+    output.append("=" * 140)
+    output.append("                                    TERRAFORM PLAN SUMMARY")
+    output.append("=" * 140)
     output.append("")
     
     # Summary
@@ -76,55 +76,76 @@ def format_table(changes: Dict) -> str:
         output.append("⚠️  No changes detected or plan not yet generated")
         output.append("")
     
-    # Resources to ADD
-    if changes['add']:
-        output.append("✅ RESOURCES TO BE CREATED")
-        output.append("-" * 120)
-        output.append(f"{'#':<5} {'Resource Type':<30} {'Resource Name':<85}")
-        output.append("-" * 120)
-        for idx, item in enumerate(changes['add'], 1):
-            if item.get('type') == 'output':
-                output.append(f"{idx:<5} {'Output':<30} {item['name']:<85}")
-            else:
-                parts = item['name'].split('.')
-                res_type = parts[0] if len(parts) > 0 else 'unknown'
-                res_name = '.'.join(parts[1:]) if len(parts) > 1 else item['name']
-                output.append(f"{idx:<5} {res_type:<30} {res_name:<85}")
+    # Combined table with all resources
+    all_resources = []
+    
+    # Add CREATE resources
+    for item in changes['add']:
+        if item.get('type') == 'output':
+            all_resources.append({
+                'action': 'CREATE',
+                'type': 'Output',
+                'name': item['name']
+            })
+        else:
+            parts = item['name'].split('.')
+            all_resources.append({
+                'action': 'CREATE',
+                'type': parts[0] if len(parts) > 0 else 'unknown',
+                'name': '.'.join(parts[1:]) if len(parts) > 1 else item['name']
+            })
+    
+    # Add MODIFY resources
+    for item in changes['change']:
+        if item.get('type') == 'output':
+            all_resources.append({
+                'action': 'MODIFY',
+                'type': 'Output',
+                'name': item['name']
+            })
+        else:
+            parts = item['name'].split('.')
+            all_resources.append({
+                'action': 'MODIFY',
+                'type': parts[0] if len(parts) > 0 else 'unknown',
+                'name': '.'.join(parts[1:]) if len(parts) > 1 else item['name']
+            })
+    
+    # Add DESTROY resources
+    for item in changes['destroy']:
+        if item.get('type') == 'output':
+            all_resources.append({
+                'action': 'DESTROY',
+                'type': 'Output',
+                'name': item['name']
+            })
+        else:
+            parts = item['name'].split('.')
+            all_resources.append({
+                'action': 'DESTROY',
+                'type': parts[0] if len(parts) > 0 else 'unknown',
+                'name': '.'.join(parts[1:]) if len(parts) > 1 else item['name']
+            })
+    
+    # Display all resources in one table
+    if all_resources:
+        output.append("📋 ALL RESOURCES IN STATE FILE")
+        output.append("-" * 140)
+        output.append(f"{'#':<5} {'Action':<10} {'Resource Type':<35} {'Resource Name':<90}")
+        output.append("-" * 140)
+        
+        for idx, resource in enumerate(all_resources, 1):
+            action_icon = {
+                'CREATE': '✅',
+                'MODIFY': '🔄',
+                'DESTROY': '❌'
+            }.get(resource['action'], '  ')
+            
+            output.append(f"{idx:<5} {action_icon} {resource['action']:<8} {resource['type']:<35} {resource['name']:<90}")
+        
         output.append("")
     
-    # Resources to CHANGE
-    if changes['change']:
-        output.append("🔄 RESOURCES TO BE MODIFIED")
-        output.append("-" * 120)
-        output.append(f"{'#':<5} {'Resource Type':<30} {'Resource Name':<85}")
-        output.append("-" * 120)
-        for idx, item in enumerate(changes['change'], 1):
-            if item.get('type') == 'output':
-                output.append(f"{idx:<5} {'Output':<30} {item['name']:<85}")
-            else:
-                parts = item['name'].split('.')
-                res_type = parts[0] if len(parts) > 0 else 'unknown'
-                res_name = '.'.join(parts[1:]) if len(parts) > 1 else item['name']
-                output.append(f"{idx:<5} {res_type:<30} {res_name:<85}")
-        output.append("")
-    
-    # Resources to DESTROY
-    if changes['destroy']:
-        output.append("❌ RESOURCES TO BE DELETED")
-        output.append("-" * 120)
-        output.append(f"{'#':<5} {'Resource Type':<30} {'Resource Name':<85}")
-        output.append("-" * 120)
-        for idx, item in enumerate(changes['destroy'], 1):
-            if item.get('type') == 'output':
-                output.append(f"{idx:<5} {'Output':<30} {item['name']:<85}")
-            else:
-                parts = item['name'].split('.')
-                res_type = parts[0] if len(parts) > 0 else 'unknown'
-                res_name = '.'.join(parts[1:]) if len(parts) > 1 else item['name']
-                output.append(f"{idx:<5} {res_type:<30} {res_name:<85}")
-        output.append("")
-    
-    output.append("=" * 120)
+    output.append("=" * 140)
     
     return "\n".join(output)
 
