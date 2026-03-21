@@ -48,11 +48,6 @@ phases:
       - echo "🔄 CREATING PULL REQUEST TO MAIN"
       - echo "=========================================="
       - |
-        # Debug: Show environment variables
-        echo "DEBUG: BRANCH_NAME=$BRANCH_NAME"
-        echo "DEBUG: CODEBUILD_WEBHOOK_HEAD_REF=$CODEBUILD_WEBHOOK_HEAD_REF"
-        echo "DEBUG: CODEBUILD_SOURCE_VERSION=$CODEBUILD_SOURCE_VERSION"
-        
         # Get GitHub token from Parameter Store
         export GITHUB_TOKEN=$(aws ssm get-parameter --name "/codepipeline/github-token" --with-decryption --query "Parameter.Value" --output text --region us-east-1)
         
@@ -61,15 +56,12 @@ phases:
         GITHUB_REPO="codepipeline"
         TARGET_BRANCH="main"
         
-        # Detect source branch - try multiple methods
+        # Detect source branch
         if [ -n "$BRANCH_NAME" ]; then
-          # Environment variable passed from CodePipeline
           SOURCE_BRANCH="$BRANCH_NAME"
         elif [ -n "$CODEBUILD_WEBHOOK_HEAD_REF" ]; then
-          # Webhook trigger (direct CodeBuild)
           SOURCE_BRANCH="${CODEBUILD_WEBHOOK_HEAD_REF#refs/heads/}"
         else
-          # Fallback: get current git branch
           cd $CODEBUILD_SRC_DIR
           SOURCE_BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
         fi
@@ -80,17 +72,41 @@ phases:
         if [ "$SOURCE_BRANCH" != "$TARGET_BRANCH" ] && [ "$SOURCE_BRANCH" != "HEAD" ]; then
           echo "Creating PR from $SOURCE_BRANCH to $TARGET_BRANCH..."
           
-          # Escape special characters in JSON
-          APPLY_OUTPUT=$(cat apply_output.txt | tail -20 | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+          # Create PR body file to avoid JSON escaping issues
+          cat > pr_body.txt << 'EOFBODY'
+        ## Terraform Apply Successful ✅
+        
+        This PR was automatically created after successful Terraform apply.
+        
+        ### Resources Applied:
+        ```
+        EOFBODY
           
-          # Create PR using GitHub API
+          cat apply_output.txt | tail -20 >> pr_body.txt
+          
+          cat >> pr_body.txt << EOFBODY
+        ```
+        
+        **Pipeline:** $CODEBUILD_BUILD_ID
+        **Branch:** $SOURCE_BRANCH
+        EOFBODY
+          
+          # Create PR using GitHub API with proper JSON
           PR_RESPONSE=$(curl -s -X POST \
             -H "Authorization: token $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/pulls \
-            -d "{\"title\":\"[Terraform] Merge $SOURCE_BRANCH to main\",\"body\":\"## Terraform Apply Successful ✅\\n\\nThis PR was automatically created after successful Terraform apply.\\n\\n### Resources Applied:\\n\\\`\\\`\\\`\\n${APPLY_OUTPUT}\\n\\\`\\\`\\\`\\n\\n**Pipeline:** $CODEBUILD_BUILD_ID\\n**Branch:** $SOURCE_BRANCH\",\"head\":\"$SOURCE_BRANCH\",\"base\":\"$TARGET_BRANCH\"}")
+            --data @- << EOF
+        {
+          "title": "[Terraform] Merge $SOURCE_BRANCH to main",
+          "body": $(jq -Rs . < pr_body.txt),
+          "head": "$SOURCE_BRANCH",
+          "base": "$TARGET_BRANCH"
+        }
+        EOF
+        )
           
-          PR_URL=$(echo $PR_RESPONSE | grep -o '"html_url": "[^"]*' | cut -d'"' -f4 | head -1)
+          PR_URL=$(echo "$PR_RESPONSE" | grep -o '"html_url": "[^"]*' | cut -d'"' -f4 | head -1)
           
           if [ -n "$PR_URL" ]; then
             echo "✅ Pull Request created: $PR_URL"
@@ -99,7 +115,7 @@ phases:
             echo "Response: $PR_RESPONSE"
           fi
         else
-          echo "Already on main branch or detached HEAD, skipping PR creation"
+          echo "Already on main branch, skipping PR creation"
         fi
 
 artifacts:
