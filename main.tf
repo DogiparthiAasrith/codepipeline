@@ -10,37 +10,25 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
-}
-
-# S3 Bucket for application
-resource "aws_s3_bucket" "app_bucket" {
-  bucket = "my-app-bucket-${data.aws_caller_identity.current.account_id}"
-
-  tags = {
-    Name        = "Application Bucket"
-    Environment = "Production"
-    ManagedBy   = "Terraform"
+  
+  default_tags {
+    tags = {
+      CreatedBy   = "Aasrith"
+      Environment = "Dev"
+      Purpose     = "POC"
+      Project     = "Codepipeline"
+    }
   }
 }
 
-# Enable versioning
-resource "aws_s3_bucket_versioning" "app_bucket_versioning" {
-  bucket = aws_s3_bucket.app_bucket.id
-
-  versioning_configuration {
-    status = "Enabled"
-  }
+# Use existing S3 Bucket (data source instead of creating new)
+data "aws_s3_bucket" "app_bucket" {
+  bucket = "pipeline-artifacts-${data.aws_caller_identity.current.account_id}"
 }
 
-# Block public access
-resource "aws_s3_bucket_public_access_block" "app_bucket_public_access" {
-  bucket = aws_s3_bucket.app_bucket.id
-
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
+# Note: Using existing bucket, so versioning and public access block
+# should already be configured. If you need to manage these settings,
+# ensure the CodeBuild role has appropriate permissions.
 
 # Get current AWS account ID
 data "aws_caller_identity" "current" {}
