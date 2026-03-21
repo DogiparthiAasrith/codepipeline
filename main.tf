@@ -67,6 +67,10 @@ resource "aws_iam_role_policy_attachment" "demo_attachment" {
 # Create S3 bucket
 resource "aws_s3_bucket" "demo_bucket" {
   bucket = "terraform-demo-bucket-${data.aws_caller_identity.current.account_id}"
+  
+  tags = {
+    Name = "Demo Bucket"
+  }
 }
 
 # Enable versioning on the bucket
