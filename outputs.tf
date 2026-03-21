@@ -1,16 +1,16 @@
-output "bucket_name" {
-  description = "Name of the S3 bucket"
-  value       = data.aws_s3_bucket.app_bucket.id
+output "demo_role_name" {
+  description = "Name of the IAM role"
+  value       = aws_iam_role.demo_role.name
 }
 
-output "bucket_arn" {
-  description = "ARN of the S3 bucket"
-  value       = data.aws_s3_bucket.app_bucket.arn
+output "demo_role_arn" {
+  description = "ARN of the IAM role"
+  value       = aws_iam_role.demo_role.arn
 }
 
-output "bucket_region" {
-  description = "Region of the S3 bucket"
-  value       = data.aws_s3_bucket.app_bucket.region
+output "demo_policy_arn" {
+  description = "ARN of the IAM policy"
+  value       = aws_iam_policy.demo_policy.arn
 }
 
 output "account_id" {
