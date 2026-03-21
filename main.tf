@@ -21,14 +21,49 @@ provider "aws" {
   }
 }
 
-# Use existing S3 Bucket (data source instead of creating new)
-data "aws_s3_bucket" "app_bucket" {
-  bucket = "pipeline-artifacts-${data.aws_caller_identity.current.account_id}"
+# Create an IAM role for demonstration (doesn't require S3 permissions)
+resource "aws_iam_role" "demo_role" {
+  name = "terraform-demo-role-${data.aws_caller_identity.current.account_id}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      }
+    ]
+  })
 }
 
-# Note: Using existing bucket, so versioning and public access block
-# should already be configured. If you need to manage these settings,
-# ensure the CodeBuild role has appropriate permissions.
+# Create an IAM policy
+resource "aws_iam_policy" "demo_policy" {
+  name        = "terraform-demo-policy-${data.aws_caller_identity.current.account_id}"
+  description = "Demo policy created by Terraform"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "s3:GetObject",
+          "s3:ListBucket"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# Attach policy to role
+resource "aws_iam_role_policy_attachment" "demo_attachment" {
+  role       = aws_iam_role.demo_role.name
+  policy_arn = aws_iam_policy.demo_policy.arn
+}
 
 # Get current AWS account ID
 data "aws_caller_identity" "current" {}
