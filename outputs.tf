@@ -23,6 +23,16 @@ output "demo_table_arn" {
   value       = aws_dynamodb_table.demo_table.arn
 }
 
+output "users_table_name" {
+  description = "Name of the Users DynamoDB table"
+  value       = aws_dynamodb_table.users_table.name
+}
+
+output "users_table_arn" {
+  description = "ARN of the Users DynamoDB table"
+  value       = aws_dynamodb_table.users_table.arn
+}
+
 output "account_id" {
   description = "AWS Account ID"
   value       = data.aws_caller_identity.current.account_id
