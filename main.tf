@@ -64,33 +64,24 @@ resource "aws_iam_role_policy_attachment" "demo_attachment" {
   policy_arn = aws_iam_policy.demo_policy.arn
 }
 
-# Create S3 bucket
-resource "aws_s3_bucket" "demo_bucket" {
-  bucket = "terraform-demo-bucket-${data.aws_caller_identity.current.account_id}"
-  
+# Create DynamoDB table
+resource "aws_dynamodb_table" "demo_table" {
+  name           = "terraform-demo-table-${data.aws_caller_identity.current.account_id}"
+  billing_mode   = "PAY_PER_REQUEST"
+  hash_key       = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+
   tags = {
-    Name = "Demo Bucket"
+    Name = "Demo DynamoDB Table"
   }
-}
-
-# Enable versioning on the bucket
-resource "aws_s3_bucket_versioning" "demo_bucket_versioning" {
-  bucket = aws_s3_bucket.demo_bucket.id
-
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
-# Block public access
-resource "aws_s3_bucket_public_access_block" "demo_bucket_public_access" {
-  bucket = aws_s3_bucket.demo_bucket.id
-
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
 }
 
 # Get current AWS account ID
 data "aws_caller_identity" "current" {}
+
+# NOTE: S3 bucket creation is blocked by Service Control Policy (SCP)
+# Contact your AWS administrator to allow s3:CreateBucket action
