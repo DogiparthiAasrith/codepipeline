@@ -13,6 +13,16 @@ output "demo_policy_arn" {
   value       = aws_iam_policy.demo_policy.arn
 }
 
+output "demo_bucket_name" {
+  description = "Name of the S3 bucket"
+  value       = aws_s3_bucket.demo_bucket.id
+}
+
+output "demo_bucket_arn" {
+  description = "ARN of the S3 bucket"
+  value       = aws_s3_bucket.demo_bucket.arn
+}
+
 output "account_id" {
   description = "AWS Account ID"
   value       = data.aws_caller_identity.current.account_id

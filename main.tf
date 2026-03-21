@@ -64,5 +64,29 @@ resource "aws_iam_role_policy_attachment" "demo_attachment" {
   policy_arn = aws_iam_policy.demo_policy.arn
 }
 
+# Create S3 bucket
+resource "aws_s3_bucket" "demo_bucket" {
+  bucket = "terraform-demo-bucket-${data.aws_caller_identity.current.account_id}"
+}
+
+# Enable versioning on the bucket
+resource "aws_s3_bucket_versioning" "demo_bucket_versioning" {
+  bucket = aws_s3_bucket.demo_bucket.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+# Block public access
+resource "aws_s3_bucket_public_access_block" "demo_bucket_public_access" {
+  bucket = aws_s3_bucket.demo_bucket.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
 # Get current AWS account ID
 data "aws_caller_identity" "current" {}
