@@ -13,14 +13,14 @@ output "demo_policy_arn" {
   value       = aws_iam_policy.demo_policy.arn
 }
 
-output "demo_bucket_name" {
-  description = "Name of the S3 bucket"
-  value       = aws_s3_bucket.demo_bucket.id
+output "demo_table_name" {
+  description = "Name of the DynamoDB table"
+  value       = aws_dynamodb_table.demo_table.name
 }
 
-output "demo_bucket_arn" {
-  description = "ARN of the S3 bucket"
-  value       = aws_s3_bucket.demo_bucket.arn
+output "demo_table_arn" {
+  description = "ARN of the DynamoDB table"
+  value       = aws_dynamodb_table.demo_table.arn
 }
 
 output "account_id" {
