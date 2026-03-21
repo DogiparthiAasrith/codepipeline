@@ -54,20 +54,20 @@ phases:
         # Set GitHub repo details
         GITHUB_OWNER="DogiparthiAasrith"
         GITHUB_REPO="codepipeline"
+        TARGET_BRANCH="main"
         
         # Detect source branch - try multiple methods
-        if [ -n "$CODEBUILD_WEBHOOK_HEAD_REF" ]; then
+        if [ -n "$BRANCH_NAME" ]; then
+          # Environment variable passed from CodePipeline
+          SOURCE_BRANCH="$BRANCH_NAME"
+        elif [ -n "$CODEBUILD_WEBHOOK_HEAD_REF" ]; then
           # Webhook trigger (direct CodeBuild)
           SOURCE_BRANCH="${CODEBUILD_WEBHOOK_HEAD_REF#refs/heads/}"
-        elif [ -n "$CODEBUILD_SOURCE_VERSION" ]; then
-          # CodePipeline trigger - extract branch from source version
-          SOURCE_BRANCH="${CODEBUILD_SOURCE_VERSION#refs/heads/}"
         else
           # Fallback: get current git branch
-          SOURCE_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+          cd $CODEBUILD_SRC_DIR
+          SOURCE_BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
         fi
-        
-        TARGET_BRANCH="main"
         
         echo "Detected source branch: $SOURCE_BRANCH"
         
@@ -75,17 +75,15 @@ phases:
         if [ "$SOURCE_BRANCH" != "$TARGET_BRANCH" ] && [ "$SOURCE_BRANCH" != "HEAD" ]; then
           echo "Creating PR from $SOURCE_BRANCH to $TARGET_BRANCH..."
           
+          # Escape special characters in JSON
+          APPLY_OUTPUT=$(cat apply_output.txt | tail -20 | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+          
           # Create PR using GitHub API
           PR_RESPONSE=$(curl -s -X POST \
             -H "Authorization: token $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/pulls \
-            -d "{
-              \"title\": \"[Terraform] Merge $SOURCE_BRANCH to main\",
-              \"body\": \"## Terraform Apply Successful ✅\n\nThis PR was automatically created after successful Terraform apply.\n\n### Resources Applied:\n\`\`\`\n$(cat apply_output.txt | tail -20)\n\`\`\`\n\n**Pipeline:** $CODEBUILD_BUILD_ID\n**Branch:** $SOURCE_BRANCH\",
-              \"head\": \"$SOURCE_BRANCH\",
-              \"base\": \"$TARGET_BRANCH\"
-            }")
+            -d "{\"title\":\"[Terraform] Merge $SOURCE_BRANCH to main\",\"body\":\"## Terraform Apply Successful ✅\\n\\nThis PR was automatically created after successful Terraform apply.\\n\\n### Resources Applied:\\n\\\`\\\`\\\`\\n${APPLY_OUTPUT}\\n\\\`\\\`\\\`\\n\\n**Pipeline:** $CODEBUILD_BUILD_ID\\n**Branch:** $SOURCE_BRANCH\",\"head\":\"$SOURCE_BRANCH\",\"base\":\"$TARGET_BRANCH\"}")
           
           PR_URL=$(echo $PR_RESPONSE | grep -o '"html_url": "[^"]*' | cut -d'"' -f4 | head -1)
           
