@@ -48,6 +48,11 @@ phases:
       - echo "🔄 CREATING PULL REQUEST TO MAIN"
       - echo "=========================================="
       - |
+        # Debug: Show environment variables
+        echo "DEBUG: BRANCH_NAME=$BRANCH_NAME"
+        echo "DEBUG: CODEBUILD_WEBHOOK_HEAD_REF=$CODEBUILD_WEBHOOK_HEAD_REF"
+        echo "DEBUG: CODEBUILD_SOURCE_VERSION=$CODEBUILD_SOURCE_VERSION"
+        
         # Get GitHub token from Parameter Store
         export GITHUB_TOKEN=$(aws ssm get-parameter --name "/codepipeline/github-token" --with-decryption --query "Parameter.Value" --output text --region us-east-1)
         
