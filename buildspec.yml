@@ -36,10 +36,10 @@ phases:
       - python3 format_terraform_plan.py plan_output.txt
       - echo ""
       - echo "⏳ Executing terraform apply..."
-      - terraform apply -auto-approve tfplan -no-color | tee apply_output.txt
-      - APPLY_EXIT_CODE=$?
-      - echo "Terraform apply exit code: $APPLY_EXIT_CODE"
       - |
+        terraform apply -auto-approve tfplan -no-color | tee apply_output.txt
+        export APPLY_EXIT_CODE=$?
+        echo "Terraform apply exit code: $APPLY_EXIT_CODE"
         if [ $APPLY_EXIT_CODE -ne 0 ]; then
           echo "❌ Terraform apply failed!"
           exit $APPLY_EXIT_CODE
