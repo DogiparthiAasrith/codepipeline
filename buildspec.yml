@@ -37,9 +37,18 @@ phases:
       - echo ""
       - echo "⏳ Executing terraform apply..."
       - |
-        terraform apply -auto-approve tfplan -no-color | tee apply_output.txt
-        export APPLY_EXIT_CODE=$?
+        set -e
+        terraform apply -auto-approve tfplan -no-color 2>&1 | tee apply_output.txt
+        export APPLY_EXIT_CODE=${PIPESTATUS[0]}
         echo "Terraform apply exit code: $APPLY_EXIT_CODE"
+        
+        # Check for errors in output even if exit code is 0
+        if grep -q "Error:" apply_output.txt; then
+          echo "❌ Terraform apply failed - errors detected in output!"
+          export APPLY_EXIT_CODE=1
+          exit 1
+        fi
+        
         if [ $APPLY_EXIT_CODE -ne 0 ]; then
           echo "❌ Terraform apply failed!"
           exit $APPLY_EXIT_CODE

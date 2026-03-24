@@ -57,6 +57,7 @@ Resources:
                   - 'iam:GetInstanceProfile'
                   - 'iam:DeleteInstanceProfile'
                   - 'iam:RemoveRoleFromInstanceProfile'
+                  - 'iam:CreateServiceLinkedRole'
                 Resource: '*'
               - Effect: Allow
                 Action:
