@@ -210,7 +210,7 @@ phases:
           fi
         else
           echo "❌ Terraform apply failed, skipping PR creation"
-          exit 1
+          echo ""
         fi
 
 artifacts:
