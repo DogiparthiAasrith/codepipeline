@@ -126,6 +126,7 @@ Resources:
       Source:
         Type: CODEPIPELINE
         BuildSpec: buildspec.yml
+      TimeoutInMinutes: 180
 
   # CodePipeline
   Pipeline:
