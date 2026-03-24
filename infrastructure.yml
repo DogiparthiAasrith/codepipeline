@@ -156,6 +156,14 @@ Resources:
                 Version: '1'
               Configuration:
                 ProjectName: !Ref CodeBuildProject
+                EnvironmentVariables: !Sub |
+                  [
+                    {
+                      "name": "BRANCH_NAME",
+                      "value": "${GitHubBranch}",
+                      "type": "PLAINTEXT"
+                    }
+                  ]
               InputArtifacts:
                 - Name: SourceOutput
 

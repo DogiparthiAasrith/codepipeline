@@ -72,22 +72,39 @@ phases:
           GITHUB_REPO="codepipeline"
           TARGET_BRANCH="main"
           
-          # Auto-detect current branch with multiple fallback methods
+          # Auto-detect current branch
           cd $CODEBUILD_SRC_DIR
           
-          # Method 1: Check environment variable from CodePipeline
-          if [ -n "$BRANCH_NAME" ]; then
-            SOURCE_BRANCH="$BRANCH_NAME"
-            echo "Branch detected from BRANCH_NAME: $SOURCE_BRANCH"
-          # Method 2: Check CodeBuild webhook reference
-          elif [ -n "$CODEBUILD_WEBHOOK_HEAD_REF" ]; then
+          echo "Detecting branch from multiple sources..."
+          echo "CODEBUILD_SOURCE_VERSION: ${CODEBUILD_SOURCE_VERSION:-not set}"
+          echo "CODEBUILD_WEBHOOK_HEAD_REF: ${CODEBUILD_WEBHOOK_HEAD_REF:-not set}"
+          echo "CODEBUILD_RESOLVED_SOURCE_VERSION: ${CODEBUILD_RESOLVED_SOURCE_VERSION:-not set}"
+          
+          # Method 1: Check CodeBuild webhook reference (for webhook triggers)
+          if [ -n "$CODEBUILD_WEBHOOK_HEAD_REF" ]; then
             SOURCE_BRANCH="${CODEBUILD_WEBHOOK_HEAD_REF#refs/heads/}"
-            echo "Branch detected from webhook: $SOURCE_BRANCH"
-          # Method 3: Check CodeBuild source version
+            echo "✓ Branch detected from webhook: $SOURCE_BRANCH"
+          # Method 2: Check CodeBuild source version (for pipeline triggers)
           elif [ -n "$CODEBUILD_SOURCE_VERSION" ] && [[ "$CODEBUILD_SOURCE_VERSION" == refs/heads/* ]]; then
             SOURCE_BRANCH="${CODEBUILD_SOURCE_VERSION#refs/heads/}"
-            echo "Branch detected from source version: $SOURCE_BRANCH"
-          # Method 4: Use git commands
+            echo "✓ Branch detected from source version: $SOURCE_BRANCH"
+          # Method 3: Use GitHub API to find branch from commit SHA
+          elif [ -n "$CODEBUILD_RESOLVED_SOURCE_VERSION" ]; then
+            COMMIT_SHA="$CODEBUILD_RESOLVED_SOURCE_VERSION"
+            echo "Querying GitHub API for commit: $COMMIT_SHA"
+            
+            BRANCHES_JSON=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+              "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/commits/$COMMIT_SHA/branches-where-head")
+            
+            SOURCE_BRANCH=$(echo "$BRANCHES_JSON" | grep -o '"name": "[^"]*' | head -1 | cut -d'"' -f4)
+            
+            if [ -n "$SOURCE_BRANCH" ]; then
+              echo "✓ Branch detected from GitHub API: $SOURCE_BRANCH"
+            else
+              echo "⚠️  Could not detect branch from commit SHA"
+              SOURCE_BRANCH="unknown"
+            fi
+          # Method 4: Try git commands as last resort
           else
             SOURCE_BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
             echo "Branch detected from git: $SOURCE_BRANCH"
