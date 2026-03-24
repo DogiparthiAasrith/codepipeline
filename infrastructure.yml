@@ -46,6 +46,34 @@ Resources:
       ManagedPolicyArns:
         - 'arn:aws:iam::aws:policy/PowerUserAccess'
         - 'arn:aws:iam::aws:policy/IAMFullAccess'
+      Policies:
+        - PolicyName: AdditionalTerraformPermissions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'iam:ListInstanceProfilesForRole'
+                  - 'iam:GetInstanceProfile'
+                  - 'iam:DeleteInstanceProfile'
+                  - 'iam:RemoveRoleFromInstanceProfile'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'fsx:*'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'ssm:GetParameter'
+                  - 'ssm:GetParameters'
+                Resource: 
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/codepipeline/*'
 
   # CodePipeline IAM Role
   CodePipelineRole:
