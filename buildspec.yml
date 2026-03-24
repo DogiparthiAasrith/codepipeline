@@ -15,7 +15,28 @@ phases:
     commands:
       - echo "Running Terraform plan..."
       - terraform init
-      - terraform plan -out=tfplan -no-color | tee plan_output.txt
+      - echo "Attempting terraform plan..."
+      - |
+        # Try to run terraform plan, if it fails due to lock, force unlock and retry
+        if ! terraform plan -out=tfplan -no-color 2>&1 | tee plan_output.txt; then
+          echo "Plan failed, checking if it's due to state lock..."
+          if grep -q "Error acquiring the state lock" plan_output.txt; then
+            echo "State lock detected, extracting lock ID..."
+            LOCK_ID=$(grep "ID:" plan_output.txt | head -1 | awk '{print $2}')
+            if [ -n "$LOCK_ID" ]; then
+              echo "Forcing unlock of lock ID: $LOCK_ID"
+              terraform force-unlock -force "$LOCK_ID"
+              echo "Retrying terraform plan..."
+              terraform plan -out=tfplan -no-color | tee plan_output.txt
+            else
+              echo "Could not extract lock ID, manual intervention required"
+              exit 1
+            fi
+          else
+            echo "Plan failed for reasons other than state lock"
+            exit 1
+          fi
+        fi
       - echo ""
       - echo "=========================================="
       - echo "📋 TERRAFORM PLAN - HUMAN READABLE FORMAT"
