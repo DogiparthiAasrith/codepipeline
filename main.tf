@@ -67,12 +67,30 @@ resource "aws_security_group" "fsx_sg" {
   }
 }
 
-# Create FSx for Windows File Server
+# Create AWS Managed Microsoft AD (Simple AD would be cheaper but FSx requires Managed AD)
+resource "aws_directory_service_directory" "demo_ad" {
+  name     = "corp.demo.local"
+  password = var.ad_password
+  edition  = "Standard"
+  type     = "MicrosoftAD"
+
+  vpc_settings {
+    vpc_id     = data.aws_vpc.default.id
+    subnet_ids = slice(data.aws_subnets.default.ids, 0, 2)
+  }
+
+  tags = {
+    Name = "Demo Managed AD for FSx"
+  }
+}
+
+# Create FSx for Windows File Server with AWS Managed AD
 resource "aws_fsx_windows_file_system" "demo_fsx" {
   storage_capacity    = 32
   subnet_ids          = [data.aws_subnets.default.ids[0]]
   throughput_capacity = 8
   security_group_ids  = [aws_security_group.fsx_sg.id]
+  active_directory_id = aws_directory_service_directory.demo_ad.id
 
   tags = {
     Name = "Demo FSx Windows"

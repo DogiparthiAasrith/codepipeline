@@ -65,6 +65,10 @@ Resources:
                 Resource: '*'
               - Effect: Allow
                 Action:
+                  - 'ds:*'
+                Resource: '*'
+              - Effect: Allow
+                Action:
                   - 'logs:CreateLogGroup'
                   - 'logs:CreateLogStream'
                   - 'logs:PutLogEvents'
