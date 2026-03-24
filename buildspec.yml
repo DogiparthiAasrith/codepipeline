@@ -15,9 +15,21 @@ phases:
     commands:
       - echo "Running Terraform plan..."
       - terraform init
-      - echo "Checking for stale state locks..."
-      - terraform force-unlock -force 4c2f616e-603c-36ab-1ff2-2283c80c377a || echo "No lock to remove or already unlocked"
-      - terraform plan -out=tfplan -no-color | tee plan_output.txt
+      - |
+        echo "Running terraform plan..."
+        if ! terraform plan -out=tfplan -no-color 2>&1 | tee plan_output.txt; then
+          echo "❌ Terraform plan failed!"
+          echo "Check the output above for errors"
+          exit 1
+        fi
+        
+        # Verify tfplan file was created
+        if [ ! -f "tfplan" ]; then
+          echo "❌ tfplan file was not created!"
+          exit 1
+        fi
+        
+        echo "✅ Terraform plan completed successfully"
       - echo ""
       - echo "=========================================="
       - echo "📋 TERRAFORM PLAN - HUMAN READABLE FORMAT"
