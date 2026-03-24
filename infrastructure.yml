@@ -134,6 +134,8 @@ Resources:
     Properties:
       Name: S3BucketPipeline
       RoleArn: !GetAtt CodePipelineRole.Arn
+      PipelineType: V2
+      ExecutionMode: QUEUED
       ArtifactStore:
         Type: S3
         Location: !Ref ArtifactBucket
@@ -172,6 +174,14 @@ Resources:
                   ]
               InputArtifacts:
                 - Name: SourceOutput
+              RunOrder: 1
+              RoleArn: !GetAtt CodePipelineRole.Arn
+              Region: !Ref AWS::Region
+              Namespace: BuildVariables
+          OnFailure:
+            Conditions:
+              - Result: FAIL
+            Result: FAIL
 
 Outputs:
   PipelineName:
