@@ -26,7 +26,8 @@ phases:
         if [ $PLAN_EXIT_CODE -ne 0 ] || grep -q "Error acquiring the state lock" plan_output.txt; then
           if grep -q "Error acquiring the state lock" plan_output.txt; then
             echo "State lock detected, extracting lock ID..."
-            LOCK_ID=$(grep "ID:" plan_output.txt | head -1 | awk '{print $2}')
+            # Extract lock ID from "Lock Info:" section, looking for the line that starts with "  ID:"
+            LOCK_ID=$(grep -A 10 "Lock Info:" plan_output.txt | grep "^  ID:" | head -1 | awk '{print $2}')
             if [ -n "$LOCK_ID" ]; then
               echo "Forcing unlock of lock ID: $LOCK_ID"
               terraform force-unlock -force "$LOCK_ID"
