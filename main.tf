@@ -20,90 +20,64 @@ provider "aws" {
   }
 }
 
-# Create an IAM role for demonstration (doesn't require S3 permissions)
-resource "aws_iam_role" "demo_role" {
-  name = "terraform-demo-role-${data.aws_caller_identity.current.account_id}"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
-      }
-    ]
-  })
+# Get default VPC
+data "aws_vpc" "default" {
+  default = true
 }
 
-# Create an IAM policy
-resource "aws_iam_policy" "demo_policy" {
-  name        = "terraform-demo-policy-${data.aws_caller_identity.current.account_id}"
-  description = "Demo policy created by Terraform"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = [
-          "s3:GetObject",
-          "s3:ListBucket"
-        ]
-        Effect   = "Allow"
-        Resource = "*"
-      }
-    ]
-  })
+# Get default subnets
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
 }
 
-# Attach policy to role
-resource "aws_iam_role_policy_attachment" "demo_attachment" {
-  role       = aws_iam_role.demo_role.name
-  policy_arn = aws_iam_policy.demo_policy.arn
-}
+# Create security group for FSx Windows
+resource "aws_security_group" "fsx_sg" {
+  name        = "fsx-windows-sg-${data.aws_caller_identity.current.account_id}"
+  description = "Security group for FSx Windows File Server"
+  vpc_id      = data.aws_vpc.default.id
 
-# Create DynamoDB table
-resource "aws_dynamodb_table" "demo_table" {
-  name           = "terraform-demo-table-${data.aws_caller_identity.current.account_id}"
-  billing_mode   = "PAY_PER_REQUEST"
-  hash_key       = "id"
+  ingress {
+    from_port   = 445
+    to_port     = 445
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_vpc.default.cidr_block]
+    description = "SMB/CIFS"
+  }
 
-  attribute {
-    name = "id"
-    type = "S"
+  ingress {
+    from_port   = 5985
+    to_port     = 5985
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_vpc.default.cidr_block]
+    description = "WinRM HTTP"
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   tags = {
-    Name = "Demo DynamoDB Table"
+    Name = "FSx Windows Security Group"
   }
 }
 
-# Create second DynamoDB table
-resource "aws_dynamodb_table" "users_table" {
-  name           = "terraform-users-table-${data.aws_caller_identity.current.account_id}"
-  billing_mode   = "PAY_PER_REQUEST"
-  hash_key       = "user_id"
-  range_key      = "timestamp"
-
-  attribute {
-    name = "user_id"
-    type = "S"
-  }
-
-  attribute {
-    name = "timestamp"
-    type = "N"
-  }
+# Create FSx for Windows File Server
+resource "aws_fsx_windows_file_system" "demo_fsx" {
+  storage_capacity    = 32
+  subnet_ids          = [data.aws_subnets.default.ids[0]]
+  throughput_capacity = 8
+  security_group_ids  = [aws_security_group.fsx_sg.id]
 
   tags = {
-    Name = "Users DynamoDB Table"
+    Name = "Demo FSx Windows"
   }
 }
 
 # Get current AWS account ID
 data "aws_caller_identity" "current" {}
-
-# NOTE: S3 bucket creation is blocked by Service Control Policy (SCP)
-# Contact your AWS administrator to allow s3:CreateBucket action

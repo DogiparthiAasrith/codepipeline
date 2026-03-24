@@ -1,36 +1,16 @@
-output "demo_role_name" {
-  description = "Name of the IAM role"
-  value       = aws_iam_role.demo_role.name
+output "fsx_id" {
+  description = "ID of the FSx file system"
+  value       = aws_fsx_windows_file_system.demo_fsx.id
 }
 
-output "demo_role_arn" {
-  description = "ARN of the IAM role"
-  value       = aws_iam_role.demo_role.arn
+output "fsx_arn" {
+  description = "ARN of the FSx file system"
+  value       = aws_fsx_windows_file_system.demo_fsx.arn
 }
 
-output "demo_policy_arn" {
-  description = "ARN of the IAM policy"
-  value       = aws_iam_policy.demo_policy.arn
-}
-
-output "demo_table_name" {
-  description = "Name of the DynamoDB table"
-  value       = aws_dynamodb_table.demo_table.name
-}
-
-output "demo_table_arn" {
-  description = "ARN of the DynamoDB table"
-  value       = aws_dynamodb_table.demo_table.arn
-}
-
-output "users_table_name" {
-  description = "Name of the Users DynamoDB table"
-  value       = aws_dynamodb_table.users_table.name
-}
-
-output "users_table_arn" {
-  description = "ARN of the Users DynamoDB table"
-  value       = aws_dynamodb_table.users_table.arn
+output "fsx_dns_name" {
+  description = "DNS name of the FSx file system"
+  value       = aws_fsx_windows_file_system.demo_fsx.dns_name
 }
 
 output "account_id" {

@@ -37,6 +37,13 @@ phases:
       - echo ""
       - echo "⏳ Executing terraform apply..."
       - terraform apply -auto-approve tfplan -no-color | tee apply_output.txt
+      - APPLY_EXIT_CODE=$?
+      - echo "Terraform apply exit code: $APPLY_EXIT_CODE"
+      - |
+        if [ $APPLY_EXIT_CODE -ne 0 ]; then
+          echo "❌ Terraform apply failed!"
+          exit $APPLY_EXIT_CODE
+        fi
       - echo ""
       - echo "=========================================="
       - echo "✅ DEPLOYMENT COMPLETE!"
@@ -48,74 +55,136 @@ phases:
       - echo "🔄 CREATING PULL REQUEST TO MAIN"
       - echo "=========================================="
       - |
-        # Get GitHub token from Parameter Store
-        export GITHUB_TOKEN=$(aws ssm get-parameter --name "/codepipeline/github-token" --with-decryption --query "Parameter.Value" --output text --region us-east-1)
-        
-        # Set GitHub repo details
-        GITHUB_OWNER="DogiparthiAasrith"
-        GITHUB_REPO="codepipeline"
-        TARGET_BRANCH="main"
-        
-        # Detect source branch
-        if [ -n "$BRANCH_NAME" ]; then
-          SOURCE_BRANCH="$BRANCH_NAME"
-        elif [ -n "$CODEBUILD_WEBHOOK_HEAD_REF" ]; then
-          SOURCE_BRANCH="${CODEBUILD_WEBHOOK_HEAD_REF#refs/heads/}"
-        else
+        # Only proceed if terraform apply was successful
+        if [ "${APPLY_EXIT_CODE:-1}" -eq 0 ]; then
+          echo "✅ Terraform apply successful, proceeding with PR creation..."
+          
+          # Get GitHub token from Parameter Store
+          export GITHUB_TOKEN=$(aws ssm get-parameter --name "/codepipeline/github-token" --with-decryption --query "Parameter.Value" --output text --region us-east-1 2>/dev/null)
+          
+          if [ -z "$GITHUB_TOKEN" ]; then
+            echo "⚠️  GitHub token not found in Parameter Store, skipping PR creation"
+            exit 0
+          fi
+          
+          # Set GitHub repo details
+          GITHUB_OWNER="DogiparthiAasrith"
+          GITHUB_REPO="codepipeline"
+          TARGET_BRANCH="main"
+          
+          # Auto-detect current branch with multiple fallback methods
           cd $CODEBUILD_SRC_DIR
-          SOURCE_BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-        fi
-        
-        echo "Detected source branch: $SOURCE_BRANCH"
-        
-        # Only create PR if not already on main branch
-        if [ "$SOURCE_BRANCH" != "$TARGET_BRANCH" ] && [ "$SOURCE_BRANCH" != "HEAD" ]; then
-          echo "Creating PR from $SOURCE_BRANCH to $TARGET_BRANCH..."
           
-          # Create PR body file to avoid JSON escaping issues
-          cat > pr_body.txt << 'EOFBODY'
-        ## Terraform Apply Successful ✅
+          # Method 1: Check environment variable from CodePipeline
+          if [ -n "$BRANCH_NAME" ]; then
+            SOURCE_BRANCH="$BRANCH_NAME"
+            echo "Branch detected from BRANCH_NAME: $SOURCE_BRANCH"
+          # Method 2: Check CodeBuild webhook reference
+          elif [ -n "$CODEBUILD_WEBHOOK_HEAD_REF" ]; then
+            SOURCE_BRANCH="${CODEBUILD_WEBHOOK_HEAD_REF#refs/heads/}"
+            echo "Branch detected from webhook: $SOURCE_BRANCH"
+          # Method 3: Check CodeBuild source version
+          elif [ -n "$CODEBUILD_SOURCE_VERSION" ] && [[ "$CODEBUILD_SOURCE_VERSION" == refs/heads/* ]]; then
+            SOURCE_BRANCH="${CODEBUILD_SOURCE_VERSION#refs/heads/}"
+            echo "Branch detected from source version: $SOURCE_BRANCH"
+          # Method 4: Use git commands
+          else
+            SOURCE_BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+            echo "Branch detected from git: $SOURCE_BRANCH"
+          fi
+          
+          echo "=========================================="
+          echo "Source Branch: $SOURCE_BRANCH"
+          echo "Target Branch: $TARGET_BRANCH"
+          echo "=========================================="
+          
+          # Only create PR if not already on main branch and branch is valid
+          if [ "$SOURCE_BRANCH" != "$TARGET_BRANCH" ] && [ "$SOURCE_BRANCH" != "HEAD" ] && [ "$SOURCE_BRANCH" != "unknown" ]; then
+            echo "Creating PR from $SOURCE_BRANCH to $TARGET_BRANCH..."
+            
+            # Create PR body with terraform apply summary
+            cat > pr_body.txt << 'EOFBODY'
+        ## 🚀 Terraform Apply Successful ✅
         
-        This PR was automatically created after successful Terraform apply.
+        This PR was automatically created after successful Terraform deployment.
         
-        ### Resources Applied:
+        ### 📊 Deployment Summary:
         ```
         EOFBODY
-          
-          cat apply_output.txt | tail -20 >> pr_body.txt
-          
-          cat >> pr_body.txt << EOFBODY
+            
+            # Add last 20 lines of apply output
+            cat apply_output.txt | tail -20 >> pr_body.txt
+            
+            cat >> pr_body.txt << EOFBODY
         ```
         
-        **Pipeline:** $CODEBUILD_BUILD_ID
-        **Branch:** $SOURCE_BRANCH
+        ---
+        **Pipeline Build:** $CODEBUILD_BUILD_ID
+        **Source Branch:** $SOURCE_BRANCH
+        **Target Branch:** $TARGET_BRANCH
+        **Timestamp:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+        
+        Please review the changes and merge if everything looks good.
         EOFBODY
-          
-          # Create PR using GitHub API with proper JSON
-          PR_RESPONSE=$(curl -s -X POST \
-            -H "Authorization: token $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/pulls \
-            --data @- << EOF
+            
+            # Create PR using GitHub API
+            PR_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
+              -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/pulls \
+              --data @- << EOF
         {
-          "title": "[Terraform] Merge $SOURCE_BRANCH to main",
+          "title": "🔄 [Terraform] Merge $SOURCE_BRANCH to $TARGET_BRANCH",
           "body": $(jq -Rs . < pr_body.txt),
           "head": "$SOURCE_BRANCH",
           "base": "$TARGET_BRANCH"
         }
         EOF
         )
-          
-          PR_URL=$(echo "$PR_RESPONSE" | grep -o '"html_url": "[^"]*' | cut -d'"' -f4 | head -1)
-          
-          if [ -n "$PR_URL" ]; then
-            echo "✅ Pull Request created: $PR_URL"
+            
+            HTTP_STATUS=$(echo "$PR_RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
+            PR_BODY=$(echo "$PR_RESPONSE" | sed '/HTTP_STATUS:/d')
+            
+            PR_URL=$(echo "$PR_BODY" | grep -o '"html_url": "[^"]*' | cut -d'"' -f4 | head -1)
+            
+            if [ "$HTTP_STATUS" = "201" ] && [ -n "$PR_URL" ]; then
+              echo ""
+              echo "=========================================="
+              echo "✅ Pull Request Created Successfully!"
+              echo "=========================================="
+              echo "PR URL: $PR_URL"
+              echo ""
+            elif [ "$HTTP_STATUS" = "422" ]; then
+              echo ""
+              echo "=========================================="
+              echo "ℹ️  Pull Request Already Exists"
+              echo "=========================================="
+              echo "A PR from $SOURCE_BRANCH to $TARGET_BRANCH may already exist."
+              echo ""
+            else
+              echo ""
+              echo "=========================================="
+              echo "⚠️  PR Creation Issue"
+              echo "=========================================="
+              echo "HTTP Status: $HTTP_STATUS"
+              echo "Response: $PR_BODY"
+              echo ""
+            fi
           else
-            echo "⚠️  PR may already exist or error occurred"
-            echo "Response: $PR_RESPONSE"
+            echo ""
+            echo "=========================================="
+            echo "ℹ️  Skipping PR Creation"
+            echo "=========================================="
+            if [ "$SOURCE_BRANCH" = "$TARGET_BRANCH" ]; then
+              echo "Reason: Already on target branch ($TARGET_BRANCH)"
+            else
+              echo "Reason: Invalid or unknown source branch ($SOURCE_BRANCH)"
+            fi
+            echo ""
           fi
         else
-          echo "Already on main branch, skipping PR creation"
+          echo "❌ Terraform apply failed, skipping PR creation"
+          exit 1
         fi
 
 artifacts:
