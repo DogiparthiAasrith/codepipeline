@@ -49,13 +49,31 @@ phases:
       - echo "📋 Reminder - Changes being applied:"
       - python3 format_terraform_plan.py plan_output.txt
       - echo ""
-      - echo "⏳ Executing terraform apply..."
+      - echo "⏳ Executing terraform apply (this may take 30-60 minutes for AD and FSx)..."
       - |
         set +e
-        terraform apply -auto-approve tfplan -no-color 2>&1 | tee apply_output.txt
+        
+        # Run terraform apply with periodic status updates
+        terraform apply -auto-approve tfplan -no-color 2>&1 | while IFS= read -r line; do
+          echo "$line"
+          echo "$line" >> apply_output.txt
+          
+          # Send periodic heartbeat to prevent timeout
+          if [[ "$line" == *"Still creating"* ]]; then
+            echo "⏳ Resources still provisioning... ($(date))"
+          fi
+        done
+        
         APPLY_EXIT_CODE=${PIPESTATUS[0]}
         set -e
         echo "Terraform apply exit code: $APPLY_EXIT_CODE"
+        
+        # Verify state file was updated
+        if [ -f ".terraform/terraform.tfstate" ] || [ -f "terraform.tfstate" ]; then
+          echo "✅ State file exists"
+        else
+          echo "⚠️  Warning: State file not found locally (may be in S3 backend)"
+        fi
         
         # Check for errors in output even if exit code is 0
         if grep -q "Error:" apply_output.txt; then
@@ -65,6 +83,19 @@ phases:
         
         if [ $APPLY_EXIT_CODE -ne 0 ]; then
           echo "❌ Terraform apply failed!"
+          echo "Checking if resources were created..."
+          
+          # Check if resources exist in AWS
+          AD_EXISTS=$(aws ds describe-directories --query 'DirectoryDescriptions[?Name==`corp.demo.local`].DirectoryId' --output text 2>/dev/null || echo "")
+          FSX_EXISTS=$(aws fsx describe-file-systems --query 'FileSystems[?Tags[?Key==`Name` && Value==`Demo FSx Windows`]].FileSystemId' --output text 2>/dev/null || echo "")
+          
+          if [ -n "$AD_EXISTS" ] || [ -n "$FSX_EXISTS" ]; then
+            echo "⚠️  Resources were created but state may not be updated!"
+            echo "AD ID: ${AD_EXISTS:-not found}"
+            echo "FSx ID: ${FSX_EXISTS:-not found}"
+            echo "You may need to import these resources into state"
+          fi
+          
           exit $APPLY_EXIT_CODE
         fi
         
