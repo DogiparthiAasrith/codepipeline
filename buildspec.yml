@@ -14,30 +14,34 @@ phases:
 
   pre_build:
     commands:
-      - echo "Running Terraform plan..."
+      - echo "Running Terraform init..."
       - terraform init
+
+      - echo "Running Terraform plan..."
       - |
-        echo "Running terraform plan..."
         if ! terraform plan -out=tfplan -no-color 2>&1 | tee plan_output.txt; then
           echo "❌ Terraform plan failed!"
           exit 1
         fi
 
+      - |
         if [ ! -f "tfplan" ]; then
           echo "❌ tfplan file was not created!"
           exit 1
         fi
 
-        echo "✅ Terraform plan completed successfully"
+      - echo "✅ Terraform plan completed successfully"
 
-      - echo "📋 Formatting plan..."
+      - echo "📋 Formatting plan output..."
       - python3 format_terraform_plan.py plan_output.txt | tee formatted_plan.txt
 
   build:
     commands:
+      - echo "=========================================="
       - echo "🚀 APPLYING TERRAFORM CHANGES"
+      - echo "=========================================="
 
-      # ✅ HEARTBEAT to prevent timeout
+      # ✅ Heartbeat (prevents CodeBuild timeout)
       - |
         ( while true; do
             echo "⏳ Build still running... $(date)"
@@ -45,19 +49,20 @@ phases:
           done ) &
         HEARTBEAT_PID=$!
 
-      # ✅ FIXED: No pipe-to-while (prevents buffering issue)
-      - terraform apply -auto-approve tfplan -no-color | tee apply_output.txt
-      - APPLY_EXIT_CODE=${PIPESTATUS[0]}
+      # ✅ Terraform Apply (FIXED YAML + no buffering issue)
+      - |
+        terraform apply -auto-approve tfplan -no-color | tee apply_output.txt
+        APPLY_EXIT_CODE=${PIPESTATUS[0]}
 
       # ✅ Stop heartbeat
       - kill $HEARTBEAT_PID
 
       - echo "Terraform apply exit code: $APPLY_EXIT_CODE"
 
-      # ✅ Error handling
+      # ✅ Error Handling
       - |
         if grep -q "Error:" apply_output.txt; then
-          echo "❌ Terraform apply failed - errors detected!"
+          echo "❌ Terraform apply failed (error found in logs)"
           exit 1
         fi
 
@@ -66,17 +71,22 @@ phases:
           exit $APPLY_EXIT_CODE
         fi
 
+      - echo "=========================================="
       - echo "✅ DEPLOYMENT COMPLETE!"
+      - echo "=========================================="
 
   post_build:
     commands:
-      - echo "🔄 Creating Pull Request..."
+      - echo "=========================================="
+      - echo "🔄 CREATING PULL REQUEST"
+      - echo "=========================================="
 
       - |
         if [ "${APPLY_EXIT_CODE:-1}" -eq 0 ]; then
-          echo "✅ Apply successful, creating PR..."
+          echo "✅ Terraform apply successful"
 
-          export GITHUB_TOKEN=$(aws ssm get-parameter \
+          # Get GitHub token
+          GITHUB_TOKEN=$(aws ssm get-parameter \
             --name "/codepipeline/github-token" \
             --with-decryption \
             --query "Parameter.Value" \
@@ -84,7 +94,7 @@ phases:
             --region us-east-1 2>/dev/null)
 
           if [ -z "$GITHUB_TOKEN" ]; then
-            echo "⚠️ No GitHub token found, skipping PR"
+            echo "⚠️ GitHub token not found, skipping PR creation"
             exit 0
           fi
 
@@ -94,22 +104,25 @@ phases:
 
           SOURCE_BRANCH="${CODEBUILD_SOURCE_VERSION#refs/heads/}"
 
-          if [ "$SOURCE_BRANCH" != "$TARGET_BRANCH" ]; then
-            echo "Creating PR..."
+          echo "Source branch: $SOURCE_BRANCH"
 
-            curl -X POST \
+          if [ "$SOURCE_BRANCH" != "$TARGET_BRANCH" ] && [ "$SOURCE_BRANCH" != "" ]; then
+            echo "Creating Pull Request..."
+
+            curl -s -X POST \
               -H "Authorization: token $GITHUB_TOKEN" \
               -H "Accept: application/vnd.github.v3+json" \
               https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/pulls \
               -d "{
-                \"title\": \"Terraform Auto PR\",
+                \"title\": \"🔄 Terraform Auto PR: $SOURCE_BRANCH → $TARGET_BRANCH\",
+                \"body\": \"Terraform deployment completed successfully.\",
                 \"head\": \"$SOURCE_BRANCH\",
                 \"base\": \"$TARGET_BRANCH\"
               }"
 
-            echo "✅ PR Created"
+            echo "✅ PR Created (or already exists)"
           else
-            echo "Skipping PR (already on main)"
+            echo "ℹ️ Skipping PR (already on main or branch unknown)"
           fi
         else
           echo "❌ Apply failed, skipping PR"
